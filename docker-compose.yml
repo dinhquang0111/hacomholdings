@@ -1,0 +1,66 @@
+services:
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: irms_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: irms_db
+      POSTGRES_USER: irms_admin
+      POSTGRES_PASSWORD: irms_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./backend/src/db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U irms_admin -d irms_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: irms_backend
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgres://irms_admin:irms_password_123@postgres_db:5432/irms_db
+      JWT_SECRET: irms_demo_jwt_secret_change_me
+      JWT_EXPIRES_IN: 8h
+      UPLOAD_DIR: /app/uploads
+      DEMO_AS_OF: 2026-10-20T03:00:00.000Z
+      DASHBOARD_PERIOD_FROM: 2026-09-30T17:00:00.000Z
+      DASHBOARD_PERIOD_TO: 2026-10-20T17:00:00.000Z
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: irms_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
